@@ -17,11 +17,17 @@ use windows_capture::{
 
 struct Capturer {
     pub tx: mpsc::Sender<Frame>,
+    pub crop: Option<(u32, u32, u32, u32)>,
 }
 
 impl Capturer {
     pub fn new(tx: mpsc::Sender<Frame>) -> Self {
-        Capturer { tx }
+        Capturer { tx, crop: None }
+    }
+
+    pub fn with_crop(mut self, crop: Option<(u32, u32, u32, u32)>) -> Self {
+        self.crop = crop;
+        self
     }
 }
 
@@ -44,6 +50,13 @@ impl WindowsCaptureHandler for Capturer {
         _: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
         let mut frame_buffer = frame.buffer().unwrap();
+
+        if let Some((start_width, start_height, end_width, end_height)) = self.crop {
+            frame_buffer = frame
+                .buffer_crop(start_width, start_height, end_width, end_height)
+                .unwrap();
+        }
+
         let raw_frame_buffer = frame_buffer.as_raw_buffer();
         let frame_data = raw_frame_buffer.to_vec();
         let bgr_frame = BGRFrame {
