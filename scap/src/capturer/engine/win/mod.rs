@@ -1,10 +1,12 @@
-use std::error::Error;
-use std::sync::mpsc;
-
 use crate::{
     capturer::Options,
     frame::{BGRFrame, Frame},
 };
+use std::fs;
+use std::io;
+use std::path::PathBuf;
+use std::sync::mpsc;
+use std::{env::temp_dir, io::ErrorKind};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, HMONITOR, MONITORINFOEXW};
 use windows_capture::{
     capture::{CaptureControl, WindowsCaptureHandler},
@@ -65,15 +67,32 @@ impl WindowsCaptureHandler for Capturer {
 }
 
 impl WinStream {
-    pub fn start_capture(&mut self) {
+    pub fn start_capture(&mut self) -> Result<(), io::Error> {
+        let mut lock_file_path = temp_dir();
+        lock_file_path.push("screen_capture.lock");
+
+        if fs::metadata(&lock_file_path).is_ok() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Another capture instance is already running.",
+            ));
+        }
+
+        fs::write(&lock_file_path, "")?;
         // TODO: Prevent cloning the transmitter
         let capture_control = Capturer::start_free_threaded(self.settings.clone()).unwrap();
         self.capture_control = Some(capture_control);
+        Ok(())
     }
 
-    pub fn stop_capture(&mut self) {
+    pub fn stop_capture(&mut self) -> Result<(), io::Error> {
+        let mut lock_file_path = temp_dir();
+        lock_file_path.push("screen_capture.lock");
+        fs::remove_file(&lock_file_path)?;
+
         let mut capture_control = self.capture_control.take().unwrap();
         capture_control.stop();
+        Ok(())
     }
 }
 
