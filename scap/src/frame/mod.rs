@@ -126,3 +126,42 @@ pub fn get_cropped_data(data: Vec<u8>, cur_width: i32, height: i32, width: i32) 
         return cropped_data;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_remove_alpha_channel() {
+        assert_eq!(remove_alpha_channel(vec![1, 2, 3, 0]), vec![1, 2, 3]);
+        assert_eq!(remove_alpha_channel(vec![1, 2, 3, 4, 5, 6, 7, 8]), vec![1, 2, 3, 5, 6, 7]);
+    }
+
+    #[test]
+    fn test_convert_bgra_to_rgb() {
+        assert_eq!(convert_bgra_to_rgb(vec![1, 2, 3, 0]), vec![3, 2, 1]);
+        assert_eq!(convert_bgra_to_rgb(vec![1, 2, 3, 4, 5, 6, 7, 8]), vec![3, 2, 1, 7, 6, 5]);
+    }
+
+    macro_rules! rgba {
+        ($n:expr) => {
+            &mut vec![$n, $n, $n, $n]
+        }
+    }
+
+    #[test]
+    pub fn test_get_cropped_data() {
+        let mut data: Vec<u8> = Vec::new();
+        for i in 1..=9 {
+            data.append(rgba!(i));
+        }
+        let mut expected: Vec<u8> = Vec::new();
+        expected.append(rgba!(1));
+        expected.append(rgba!(2));
+        expected.append(rgba!(4));
+        expected.append(rgba!(5));
+        expected.append(rgba!(7));
+        expected.append(rgba!(8));
+        assert_eq!(get_cropped_data(data, 3, 3, 2), expected)
+    }
+}
