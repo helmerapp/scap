@@ -335,16 +335,7 @@ impl LinuxCapturer {
             .pw_node_id();
 
         // TODO: Fix this hack
-        let options = Options {
-            fps: options.fps,
-            show_cursor: options.show_cursor,
-            show_highlight: options.show_highlight,
-            output_type: options.output_type,
-            targets: options.targets.clone(),
-            excluded_targets: None,
-            output_resolution: crate::capturer::Resolution::Captured,
-            source_rect: None,
-        };
+        let options = options.clone();
         let (ready_sender, ready_recv) = sync_channel(1);
         let capturer_join_handle = std::thread::spawn(move || {
             let res = pipewire_capturer(options, tx, &ready_sender, stream_id);
