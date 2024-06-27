@@ -408,11 +408,12 @@ impl<'a> ScreenCastPortal<'a> {
 
     pub fn show_cursor(mut self, mode: bool) -> Result<Self, LinCapError> {
         let available_modes = self.proxy.available_cursor_modes()?;
-        if mode && available_modes & 1 == 1 {
-            self.cursor_mode = 1;
-            return Ok(self);
-        } else if !mode && available_modes & 2 == 1 {
+        if mode && available_modes & 2 == 2 {
             self.cursor_mode = 2;
+            return Ok(self);
+        }
+        if !mode && available_modes & 1 == 1 {
+            self.cursor_mode = 1;
             return Ok(self);
         }
 
