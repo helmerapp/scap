@@ -37,3 +37,8 @@ objc = "0.2.7"
 pipewire = "0.8.0"
 dbus = "0.9.7"
 rand = "0.8.5"
+
+[package.metadata.docs.rs]
+cargo-features = ["--no-default-features"]
+cargo_args = ["--no-deps"]
+default-target = "x86_64-pc-windows-msvc"

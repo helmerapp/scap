@@ -1,6 +1,7 @@
 // This program is just a testing application
 // Refer to `lib.rs` for the library source code
 
+
 use scap::{
     capturer::{Area, Capturer, Options, Point, Size},
     frame::Frame,

@@ -340,10 +340,10 @@ impl LinuxCapturer {
             show_cursor: options.show_cursor,
             show_highlight: options.show_highlight,
             output_type: options.output_type,
-            targets: options.targets.clone(),
+            target: options.target.clone(),
             excluded_targets: None,
             output_resolution: crate::capturer::Resolution::Captured,
-            source_rect: None,
+            crop_area: None,
         };
         let (ready_sender, ready_recv) = sync_channel(1);
         let capturer_join_handle = std::thread::spawn(move || {

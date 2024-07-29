@@ -57,7 +57,7 @@ pub fn get_scale_factor(target: &Target) -> f64 {
     return win::get_scale_factor(target);
 
     #[cfg(target_os = "linux")]
-    return 1;
+    return 1.0;
 }
 
 pub fn get_main_display() -> Display {
@@ -69,6 +69,7 @@ pub fn get_main_display() -> Display {
 
     // #[cfg(target_os = "linux")]
     // return linux::get_main_display();
+    
 }
 
 pub fn get_target_dimensions(target: &Target) -> (u64, u64) {
