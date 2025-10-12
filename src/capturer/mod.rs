@@ -142,15 +142,17 @@ impl Capturer {
 
     /// Attempts to return the next captured frame without blocking.
     pub fn try_get_next_frame(&self) -> Result<Option<Frame>, mpsc::RecvError> {
-        match self.rx.try_recv() {
-            Ok(res) => {
-                if let Some(frame) = self.engine.process_channel_item(res) {
-                    return Ok(Some(frame));
+        loop {
+            match self.rx.try_recv() {
+                Ok(res) => {
+                    if let Some(frame) = self.engine.process_channel_item(res) {
+                        return Ok(Some(frame));
+                    }
+                    // Item filtered, try next without blocking
                 }
-                return Ok(None);
+                Err(mpsc::TryRecvError::Empty) => return Ok(None),
+                Err(mpsc::TryRecvError::Disconnected) => return Err(mpsc::RecvError),
             }
-            Err(mpsc::TryRecvError::Empty) => Ok(None),
-            Err(mpsc::TryRecvError::Disconnected) => Err(mpsc::RecvError),
         }
     }
 
