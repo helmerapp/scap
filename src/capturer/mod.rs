@@ -141,6 +141,10 @@ impl Capturer {
     }
 
     /// Attempts to return the next captured frame without blocking.
+    ///
+    /// Processes all currently available channel items until a usable frame is found.
+    /// Returns `Ok(None)` if no frames are available at this moment (not that items were filtered).
+    /// Returns `Err(mpsc::RecvError)` if the capture channel has been disconnected.
     pub fn try_get_next_frame(&self) -> Result<Option<Frame>, mpsc::RecvError> {
         loop {
             match self.rx.try_recv() {
