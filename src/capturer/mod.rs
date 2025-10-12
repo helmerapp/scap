@@ -140,6 +140,20 @@ impl Capturer {
         }
     }
 
+    /// Attempts to return the next captured frame without blocking.
+    pub fn try_get_next_frame(&self) -> Result<Option<Frame>, mpsc::RecvError> {
+        match self.rx.try_recv() {
+            Ok(res) => {
+                if let Some(frame) = self.engine.process_channel_item(res) {
+                    return Ok(Some(frame));
+                }
+                return Ok(None);
+            }
+            Err(mpsc::TryRecvError::Empty) => Ok(None),
+            Err(mpsc::TryRecvError::Disconnected) => Err(mpsc::RecvError),
+        }
+    }
+
     /// Get the dimensions the frames will be captured in
     pub fn get_output_frame_size(&mut self) -> [u32; 2] {
         self.engine.get_output_frame_size()
