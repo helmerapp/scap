@@ -140,6 +140,26 @@ impl Capturer {
         }
     }
 
+    /// Attempts to return the next captured frame without blocking.
+    ///
+    /// Processes all currently available channel items until a usable frame is found.
+    /// Returns `Ok(None)` if the channel is empty; filtered items are processed transparently.
+    /// Returns `Err(mpsc::RecvError)` if the capture channel has been disconnected.
+    pub fn try_get_next_frame(&self) -> Result<Option<Frame>, mpsc::RecvError> {
+        loop {
+            match self.rx.try_recv() {
+                Ok(res) => {
+                    if let Some(frame) = self.engine.process_channel_item(res) {
+                        return Ok(Some(frame));
+                    }
+                    // Item filtered, try next without blocking
+                }
+                Err(mpsc::TryRecvError::Empty) => return Ok(None),
+                Err(mpsc::TryRecvError::Disconnected) => return Err(mpsc::RecvError),
+            }
+        }
+    }
+
     /// Get the dimensions the frames will be captured in
     pub fn get_output_frame_size(&mut self) -> [u32; 2] {
         self.engine.get_output_frame_size()
