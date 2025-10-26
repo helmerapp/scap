@@ -14,6 +14,8 @@ pub struct YUVFrame {
 #[derive(Debug, Clone)]
 pub struct RGBFrame {
     pub display_time: SystemTime,
+    pub processed_time: SystemTime,
+    pub sequence: u64,
     pub width: i32,
     pub height: i32,
     pub data: Vec<u8>,
@@ -29,6 +31,8 @@ pub struct RGB8Frame {
 #[derive(Debug, Clone)]
 pub struct RGBxFrame {
     pub display_time: SystemTime,
+    pub processed_time: SystemTime,
+    pub sequence: u64,
     pub width: i32,
     pub height: i32,
     pub data: Vec<u8>,
@@ -37,6 +41,8 @@ pub struct RGBxFrame {
 #[derive(Debug, Clone)]
 pub struct XBGRFrame {
     pub display_time: SystemTime,
+    pub processed_time: SystemTime,
+    pub sequence: u64,
     pub width: i32,
     pub height: i32,
     pub data: Vec<u8>,
@@ -45,6 +51,8 @@ pub struct XBGRFrame {
 #[derive(Debug, Clone)]
 pub struct BGRxFrame {
     pub display_time: SystemTime,
+    pub processed_time: SystemTime,
+    pub sequence: u64,
     pub width: i32,
     pub height: i32,
     pub data: Vec<u8>,
@@ -53,6 +61,8 @@ pub struct BGRxFrame {
 #[derive(Debug, Clone)]
 pub struct BGRFrame {
     pub display_time: SystemTime,
+    pub processed_time: SystemTime,
+    pub sequence: u64,
     pub width: i32,
     pub height: i32,
     pub data: Vec<u8>,
@@ -61,6 +71,8 @@ pub struct BGRFrame {
 #[derive(Debug, Clone)]
 pub struct BGRAFrame {
     pub display_time: SystemTime,
+    pub processed_time: SystemTime,
+    pub sequence: u64,
     pub width: i32,
     pub height: i32,
     pub data: Vec<u8>,

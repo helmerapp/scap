@@ -5,10 +5,10 @@ use std::{
         mpsc::{self, sync_channel, SyncSender},
     },
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
-use pipewire as pw;
+use pipewire::{self as pw, spa::sys::spa_meta_type, sys::pw_buffer};
 use pw::{
     context::Context,
     main_loop::MainLoop,
@@ -31,7 +31,7 @@ use pw::{
 
 use crate::{
     capturer::Options,
-    frame::{BGRxFrame, Frame, RGBFrame, RGBxFrame, XBGRFrame},
+    frame::{BGRxFrame, Frame, RGBFrame, RGBxFrame, VideoFrame, XBGRFrame},
 };
 
 use self::{error::LinCapError, portal::ScreenCastPortal};
@@ -91,38 +91,68 @@ fn state_changed_callback(
     }
 }
 
-unsafe fn get_timestamp(buffer: *mut spa_buffer) -> i64 {
+unsafe fn find_meta_in_buffer<T: Copy>(buffer: *mut spa_buffer, type_: spa_meta_type) -> Option<T> {
     let n_metas = (*buffer).n_metas;
-    if n_metas > 0 {
-        let mut meta_ptr = (*buffer).metas;
-        let metas_end = (*buffer).metas.wrapping_add(n_metas as usize);
-        while meta_ptr != metas_end {
-            if (*meta_ptr).type_ == SPA_META_Header {
-                let meta_header: &mut spa_meta_header =
-                    &mut *((*meta_ptr).data as *mut spa_meta_header);
-                return meta_header.pts;
-            }
-            meta_ptr = meta_ptr.wrapping_add(1);
+    let mut meta_ptr = (*buffer).metas;
+    let metas_end = (*buffer).metas.wrapping_add(n_metas as usize);
+
+    while meta_ptr != metas_end {
+        if (*meta_ptr).type_ == type_ {
+            let target: T = *((*meta_ptr).data as *mut T);
+
+            return Some(target);
         }
-        0
+
+        meta_ptr = meta_ptr.wrapping_add(1);
+    }
+
+    None
+}
+
+unsafe fn get_timestamp_and_sequence(buffer: *mut spa_buffer) -> (i64, u64) {
+    let meta_header: Option<spa_meta_header> = find_meta_in_buffer(buffer, SPA_META_Header);
+
+    if let Some(meta_header) = meta_header {
+        (meta_header.pts, meta_header.seq)
     } else {
-        0
+        (0, 0)
     }
 }
 
+unsafe fn find_most_recent_buffer(stream: &StreamRef) -> *mut pw_buffer {
+    let mut buffer: *mut pw_buffer = std::ptr::null_mut();
+
+    loop {
+        let tmp = stream.dequeue_raw_buffer();
+        if tmp.is_null() {
+            break;
+        }
+
+        if !buffer.is_null() {
+            stream.queue_raw_buffer(buffer);
+        }
+
+        buffer = tmp;
+    }
+
+    buffer
+}
+
 fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
-    let buffer = unsafe { stream.dequeue_raw_buffer() };
-    if !buffer.is_null() {
+    let pw_buffer = unsafe { find_most_recent_buffer(stream) };
+    if !pw_buffer.is_null() {
         'outside: {
-            let buffer = unsafe { (*buffer).buffer };
+            let buffer = unsafe { (*pw_buffer).buffer };
             if buffer.is_null() {
                 break 'outside;
             }
-            let timestamp = unsafe { get_timestamp(buffer) };
+
+            let (timestamp, sequence) = unsafe { get_timestamp_and_sequence(buffer) };
+            let timestamp = SystemTime::UNIX_EPOCH + Duration::from_nanos(timestamp as u64);
 
             let n_datas = unsafe { (*buffer).n_datas };
             if n_datas < 1 {
-                return;
+                break 'outside;
             }
             let frame_size = user_data.format.size();
             let frame_data: Vec<u8> = unsafe {
@@ -134,30 +164,38 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
             };
 
             if let Err(e) = match user_data.format.format() {
-                VideoFormat::RGBx => user_data.tx.send(Frame::RGBx(RGBxFrame {
-                    display_time: timestamp as u64,
+                VideoFormat::RGBx => user_data.tx.send(Frame::Video(VideoFrame::RGBx(RGBxFrame {
+                    display_time: timestamp,
+                    processed_time: SystemTime::now(),
+                    sequence,
                     width: frame_size.width as i32,
                     height: frame_size.height as i32,
                     data: frame_data,
-                })),
-                VideoFormat::RGB => user_data.tx.send(Frame::RGB(RGBFrame {
-                    display_time: timestamp as u64,
+                }))),
+                VideoFormat::RGB => user_data.tx.send(Frame::Video(VideoFrame::RGB(RGBFrame {
+                    display_time: timestamp,
+                    processed_time: SystemTime::now(),
+                    sequence,
                     width: frame_size.width as i32,
                     height: frame_size.height as i32,
                     data: frame_data,
-                })),
-                VideoFormat::xBGR => user_data.tx.send(Frame::XBGR(XBGRFrame {
-                    display_time: timestamp as u64,
+                }))),
+                VideoFormat::xBGR => user_data.tx.send(Frame::Video(VideoFrame::XBGR(XBGRFrame {
+                    display_time: timestamp,
+                    processed_time: SystemTime::now(),
+                    sequence,
                     width: frame_size.width as i32,
                     height: frame_size.height as i32,
                     data: frame_data,
-                })),
-                VideoFormat::BGRx => user_data.tx.send(Frame::BGRx(BGRxFrame {
-                    display_time: timestamp as u64,
+                }))),
+                VideoFormat::BGRx => user_data.tx.send(Frame::Video(VideoFrame::BGRx(BGRxFrame {
+                    display_time: timestamp,
+                    processed_time: SystemTime::now(),
+                    sequence,
                     width: frame_size.width as i32,
                     height: frame_size.height as i32,
                     data: frame_data,
-                })),
+                }))),
                 _ => panic!("Unsupported frame format received"),
             } {
                 eprintln!("{e}");
@@ -166,8 +204,7 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
     } else {
         eprintln!("Out of buffers");
     }
-
-    unsafe { stream.queue_raw_buffer(buffer) };
+    unsafe { stream.queue_raw_buffer(pw_buffer) };
 }
 
 // TODO: Format negotiation
