@@ -10,6 +10,9 @@ mod win;
 #[cfg(target_os = "linux")]
 mod linux;
 
+#[cfg(target_os = "windows")]
+unsafe impl Send for Window {}
+
 #[derive(Debug, Clone)]
 pub struct Window {
     pub id: u32,
@@ -21,6 +24,9 @@ pub struct Window {
     #[cfg(target_os = "macos")]
     pub raw_handle: cidre::cg::WindowId,
 }
+
+#[cfg(target_os = "windows")]
+unsafe impl Send for Display {}
 
 #[derive(Debug, Clone)]
 pub struct Display {
