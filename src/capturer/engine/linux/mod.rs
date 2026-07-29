@@ -49,23 +49,27 @@ mod portal;
 /// that selected `RGBA` therefore reached the fallback and panicked, despite
 /// scap having offered that format itself.
 ///
-/// **What the tests below mechanically guarantee**, stated precisely because
-/// the two directions are not equally covered:
+/// **What is mechanically guaranteed**, stated precisely because the
+/// directions are not equally covered:
 ///
 /// - `advertised => decodable` is enforced generally, for every entry here,
 ///   by `every_advertised_format_has_a_decode_arm`. This is the direction
 ///   that matters: advertising a format the engine cannot decode is what
 ///   caused the panic.
+/// - **Growing this array cannot silently under-advertise.** `stream_params`
+///   destructures it (`let [fmt0, fmt1, fmt2, fmt3] = ...`) rather than
+///   indexing, so adding a fifth entry fails to compile at that callsite
+///   instead of quietly continuing to offer only the first four.
 /// - `decodable => advertised` is **not** enforced generally. Only the
 ///   historical `xBGR` omission is pinned, by
 ///   `xbgr_is_both_decodable_and_advertised`. Adding a new arm to
 ///   [`video_frame_for`] without adding it here would leave that format
 ///   simply unnegotiable — harmless, but silent.
 ///
-/// Closing the second direction properly would mean generating both this
-/// array and the dispatch from one declarative table, or enumerating every
-/// `VideoFormat`. Neither is warranted for the four formats this engine
-/// supports; add it here if the set grows.
+/// Closing that last direction would mean generating both this array and the
+/// dispatch from one declarative table, or enumerating every `VideoFormat`.
+/// Neither is warranted for the four formats this engine supports; add it
+/// here if the set grows.
 const SUPPORTED_VIDEO_FORMATS: [VideoFormat; 4] = [
     VideoFormat::RGB,
     VideoFormat::RGBx,
@@ -215,7 +219,7 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
             // SystemTime::now() here (matches what the macOS and Windows
             // engines do today).  Relative frame ordering survives via
             // channel-send order; sub-millisecond buffer timing is lost.
-            let _ = timestamp; // suppress "unused" warning until we wire pts elsewhere
+            let _pts_ns = timestamp; // TODO: plumb PipeWire PTS through frame metadata
             let display_time = SystemTime::now();
 
             match video_frame_for(
@@ -286,6 +290,11 @@ fn pipewire_capturer(
         .process(process_callback)
         .register()?;
 
+    // Destructured rather than indexed: if SUPPORTED_VIDEO_FORMATS gains a
+    // fifth entry, this fails to compile instead of silently continuing to
+    // advertise only the first four. Suggested by review on #187.
+    let [fmt0, fmt1, fmt2, fmt3] = SUPPORTED_VIDEO_FORMATS;
+
     let obj = pw::spa::pod::object!(
         pw::spa::utils::SpaTypes::ObjectParamFormat,
         pw::spa::param::ParamType::EnumFormat,
@@ -296,10 +305,10 @@ fn pipewire_capturer(
             Choice,
             Enum,
             Id,
-            SUPPORTED_VIDEO_FORMATS[0],
-            SUPPORTED_VIDEO_FORMATS[1],
-            SUPPORTED_VIDEO_FORMATS[2],
-            SUPPORTED_VIDEO_FORMATS[3],
+            fmt0,
+            fmt1,
+            fmt2,
+            fmt3,
         ),
         pw::spa::pod::property!(
             FormatProperties::VideoSize,
