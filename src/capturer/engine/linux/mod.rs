@@ -40,8 +40,8 @@ mod error;
 mod portal;
 
 /// The authoritative set of video formats advertised to PipeWire in
-/// `stream_params()`. Every entry must have a decode arm in
-/// [`video_frame_for`].
+/// [`pipewire_capturer`]'s format-negotiation block. Every entry must have a
+/// decode arm in [`video_frame_for`].
 ///
 /// The advertised and decodable sets used to be maintained independently and
 /// disagreed in both directions: `RGBA` was advertised but had no decode arm,
@@ -59,8 +59,8 @@ mod portal;
 /// - `advertised => decodable` is enforced generally, for every entry here,
 ///   by `every_advertised_format_has_a_decode_arm`, which also pins the exact
 ///   [`VideoFrame`] variant each one maps to.
-/// - **Growing this array cannot silently under-advertise.** `stream_params`
-///   destructures it rather than indexing, so adding an entry fails to
+/// - **Growing this array cannot silently under-advertise.** The negotiation
+///   block destructures it rather than indexing, so adding an entry fails to
 ///   compile at that callsite instead of quietly continuing to offer only the
 ///   previous set.
 /// - `decodable => advertised` is **not** enforced generally. Adding a new arm
@@ -83,7 +83,7 @@ const SUPPORTED_VIDEO_FORMATS: [VideoFormat; 5] = [
 /// Build the [`VideoFrame`] for a negotiated `format`, or `None` when this
 /// engine has no decode arm for it.
 ///
-/// Split out of the `on_process` callback so the advertised list above can be
+/// Split out of [`process_callback`] so the advertised list above can be
 /// checked against the dispatch without a live PipeWire stream. See that
 /// list's docs for exactly which direction the tests enforce.
 fn video_frame_for(
@@ -230,6 +230,22 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
             if n_datas < 1 {
                 return;
             }
+            // Check the negotiated format BEFORE copying the buffer. The
+            // one-shot flag below bounds the *logging*, but without this the
+            // callback would still `to_vec()` and then discard every frame a
+            // noncompliant portal delivers -- bounded logs, unbounded wasted
+            // copying, which at high resolution is real memory bandwidth.
+            // `break 'outside` requeues the PipeWire buffer at the end of the
+            // function, same as every other early exit here.
+            let negotiated_format = user_data.format.format();
+            if !SUPPORTED_VIDEO_FORMATS.contains(&negotiated_format) {
+                if !user_data.unsupported_format_reported {
+                    user_data.unsupported_format_reported = true;
+                    eprintln!("Unsupported frame format received: {negotiated_format:?}");
+                }
+                break 'outside;
+            }
+
             let frame_size = user_data.format.size();
             let frame_data: Vec<u8> = unsafe {
                 std::slice::from_raw_parts(
@@ -256,7 +272,7 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
             let display_time = SystemTime::now();
 
             match video_frame_for(
-                user_data.format.format(),
+                negotiated_format,
                 display_time,
                 frame_size.width as i32,
                 frame_size.height as i32,
@@ -268,23 +284,16 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
                     }
                 }
                 None => {
-                    // Should be unreachable when the portal honours the
-                    // negotiated format set, since everything in
-                    // SUPPORTED_VIDEO_FORMATS has a decode arm -- but portal
-                    // behaviour is not a construction guarantee (see #153,
-                    // where a compositor's choice reached this path), so it is
-                    // retained as a defensive fallback.
-                    //
-                    // Reported rather than panicking because this runs inside
-                    // an FFI-driven callback, where unwinding is not something
-                    // the C caller is prepared for. Logged once per negotiated
-                    // format rather than once per frame.
+                    // Formats outside the advertised set are already rejected
+                    // above, so reaching here means SUPPORTED_VIDEO_FORMATS
+                    // contains something `video_frame_for` cannot decode --
+                    // which `every_advertised_format_has_a_decode_arm` exists
+                    // to prevent. Retained rather than made `unreachable!()`
+                    // because this runs inside an FFI-driven callback, where
+                    // unwinding is not something the C caller is prepared for.
                     if !user_data.unsupported_format_reported {
                         user_data.unsupported_format_reported = true;
-                        eprintln!(
-                            "Unsupported frame format received: {:?}",
-                            user_data.format.format()
-                        );
+                        eprintln!("Advertised format {negotiated_format:?} has no decode arm");
                     }
                 }
             }
@@ -296,7 +305,6 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
     unsafe { stream.queue_raw_buffer(buffer) };
 }
 
-// TODO: Format negotiation
 fn pipewire_capturer(
     options: Options,
     tx: mpsc::Sender<Frame>,
@@ -333,8 +341,8 @@ fn pipewire_capturer(
         .register()?;
 
     // Destructured rather than indexed: if SUPPORTED_VIDEO_FORMATS gains a
-    // fifth entry, this fails to compile instead of silently continuing to
-    // advertise only the first four. Suggested by review on #187.
+    // sixth entry, this fails to compile instead of silently continuing to
+    // advertise only the first five. Suggested by review on #187.
     let [fmt0, fmt1, fmt2, fmt3, fmt4] = SUPPORTED_VIDEO_FORMATS;
 
     let obj = pw::spa::pod::object!(
@@ -508,12 +516,17 @@ mod format_negotiation_tests {
     const W: i32 = 3;
     const H: i32 = 2;
 
-    /// Bytes per pixel for a given negotiated format. RGB is packed 3-byte;
-    /// every other format this engine decodes is 4-byte.
+    /// Bytes per pixel for a given negotiated format.
+    ///
+    /// Deliberately exhaustive over the supported set rather than falling back
+    /// to 4: a catch-all would silently hand a future 3-byte format a 4-byte
+    /// fixture, which is exactly the false test signal this helper exists to
+    /// prevent. Adding a format requires consciously declaring its layout.
     fn bytes_per_pixel(format: VideoFormat) -> usize {
         match format {
             VideoFormat::RGB => 3,
-            _ => 4,
+            VideoFormat::RGBA | VideoFormat::RGBx | VideoFormat::xBGR | VideoFormat::BGRx => 4,
+            other => panic!("no test fixture size defined for {other:?}"),
         }
     }
 
@@ -568,8 +581,13 @@ mod format_negotiation_tests {
     /// The frame payload must survive the dispatch unchanged -- a decode arm
     /// that mapped to the right variant but dropped or reordered the buffer
     /// would still satisfy the mapping assertions above.
+    ///
+    /// Covers `BGRx` as a representative branch, not all five: the exact
+    /// variant mapping for every format is already asserted in
+    /// `every_advertised_format_has_a_decode_arm`, and all arms construct
+    /// their frame identically.
     #[test]
-    fn decoding_preserves_dimensions_timestamp_and_data() {
+    fn bgrx_dispatch_preserves_dimensions_timestamp_and_data() {
         let Some(VideoFrame::BGRx(frame)) = sample(VideoFormat::BGRx) else {
             panic!("BGRx did not decode to a BGRx frame");
         };
