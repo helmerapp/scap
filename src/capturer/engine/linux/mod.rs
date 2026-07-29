@@ -508,8 +508,27 @@ mod format_negotiation_tests {
     const W: i32 = 3;
     const H: i32 = 2;
 
+    /// Bytes per pixel for a given negotiated format. RGB is packed 3-byte;
+    /// every other format this engine decodes is 4-byte.
+    fn bytes_per_pixel(format: VideoFormat) -> usize {
+        match format {
+            VideoFormat::RGB => 3,
+            _ => 4,
+        }
+    }
+
+    /// A correctly-sized sample buffer for `format`.
+    ///
+    /// Sized per format rather than a fixed length so that if
+    /// `video_frame_for` ever validates buffer size, these tests fail for the
+    /// reason under test rather than because RGB was handed a 4-byte-per-pixel
+    /// buffer.
+    fn sample_data(format: VideoFormat) -> Vec<u8> {
+        vec![7u8; (W * H) as usize * bytes_per_pixel(format)]
+    }
+
     fn sample(format: VideoFormat) -> Option<VideoFrame> {
-        video_frame_for(format, SystemTime::UNIX_EPOCH, W, H, vec![7u8; 24])
+        video_frame_for(format, SystemTime::UNIX_EPOCH, W, H, sample_data(format))
     }
 
     /// Anything offered to PipeWire must be something this engine can decode,
@@ -557,7 +576,7 @@ mod format_negotiation_tests {
         assert_eq!(frame.width, W);
         assert_eq!(frame.height, H);
         assert_eq!(frame.display_time, SystemTime::UNIX_EPOCH);
-        assert_eq!(frame.data, vec![7u8; 24]);
+        assert_eq!(frame.data, sample_data(VideoFormat::BGRx));
     }
 
     /// `RGBA` and its advertisement must change together.
